@@ -1,0 +1,182 @@
+---
+title: "Preadipo scrnaseq Pseudotime analysis - TF and secreted genes heatmap"
+author: Nagendra Palani / nagendra.palani@sund.ku.dk
+owner: Camilla Schéele / cs@sund.ku.dk / Schéele Lab - Novo Nordisk Foundation Center for Basic Metabolic Research
+output: html_notebook
+---
+
+
+
+
+```{r}
+library(dplyr)
+library(RColorBrewer)
+library(ComplexHeatmap)
+library(eulerr)
+
+```
+
+
+```{r}
+breaksList = seq(50, 100, by = 10)
+colscale = colorRampPalette(rev(brewer.pal(n = 5, name = "RdYlGn")))(length(breaksList))
+
+
+```
+
+/////////////////// Transcription factors heatmap ///////////////////
+
+```{r}
+
+tf_brown <- readr::read_csv("/Users/hdp830/Documents/scheele_wolfrum_integ/monocle_brown_depots_tf_pseudotime.csv")
+tf_white <- readr::read_csv("/Users/hdp830/Documents/scheele_wolfrum_integ/monocle_white_depots_tf_pseudotime.csv")
+```
+
+
+```{r}
+tf_brownmetab <- tf_brown %>% filter(V4brown < 0) %>% arrange(V2brown)
+tf_brownstruc <- tf_brown %>% filter(V4brown > 0) %>% arrange(V2brown)
+tf_whitemetab <- tf_white %>% filter(V4white < 0) %>% arrange(V2white)
+tf_whitestruc <- tf_white %>% filter(V4white > 0) %>% arrange(V2white)
+
+
+tf_metab_total <- full_join(tf_brownmetab, tf_whitemetab, by=c("V1brown" = "V1white"))
+tf_struc_total <- full_join(tf_brownstruc, tf_whitestruc, by=c("V1brown" = "V1white"))
+
+```
+
+```{r}
+tf_metab_total$ordering <- apply(tf_metab_total[,c("V2brown","V2white")] , 1, FUN = min, na.rm = T)
+tf_metab_total <- tf_metab_total %>% arrange(ordering)
+
+
+tf_struc_total$ordering <- apply(tf_struc_total[,c("V2brown","V2white")] , 1, FUN = min, na.rm = T)
+tf_struc_total <- tf_struc_total %>% arrange(ordering)
+```
+
+
+
+```{r}
+
+
+m <- as.matrix(tf_metab_total[, c("V2brown","V2white")])
+rownames(m) <- tf_metab_total$V1brown
+pheatmap::pheatmap(t(m), cluster_rows=F, cluster_cols  = F, show_rownames = F, show_colnames = T,
+                         scale = "none",legend = F,annotation_legend= F,cellwidth = 7,cellheight = 5, fontsize_col = 4,
+                         fontsize_row = 3,color = colscale, 
+                         breaks = breaksList, angle_col = 45, na_col = "#434543", width = 8, filename = "TF_upper_v2.pdf")
+
+
+m <- as.matrix(tf_struc_total[, c("V2brown","V2white")])
+rownames(m) <- tf_struc_total$V1brown
+pheatmap::pheatmap(t(m), cluster_rows=F, cluster_cols  = F, show_rownames = F, show_colnames = T,
+                         scale = "none",legend = F,annotation_legend= F,cellwidth = 7,cellheight = 5, fontsize_col = 4,
+                         fontsize_row = 3,color = colscale, 
+                         breaks = breaksList, angle_col = 45, na_col = "#434543", width = 8, filename = "TF_lower_v2.pdf")
+
+
+
+```
+
+/////////////////// Secreted genes heatmap ///////////////////
+
+```{r}
+secbrown <- readr::read_csv("/Users/hdp830/Documents/scheele_wolfrum_integ/secreted_genes_brown_diverge.csv")
+secwhite <- readr::read_csv("/Users/hdp830/Documents/scheele_wolfrum_integ/secreted_genes_white_diverge.csv")
+secmaster <- readr::read_csv("/Users/hdp830/Documents/scheele_wolfrum_integ/secreted_proteins_masterlist.csv")
+```
+
+```{r}
+
+secbrown_metab <- left_join(secbrown, secmaster, by=c("gene" = "Genename")) %>% 
+  filter(annotcategory %in% c("Locally secreted", "Locally secreted to extracellular matrix", "Secreted to blood")) %>% filter(value < 0) %>% arrange(pseudotime)
+
+secbrown_struc <- left_join(secbrown, secmaster, by=c("gene" = "Genename")) %>% 
+  filter(annotcategory %in% c("Locally secreted", "Locally secreted to extracellular matrix", "Secreted to blood")) %>% filter(value > 0) %>% arrange(pseudotime)
+
+secwhite_metab <- left_join(secwhite, secmaster, by=c("gene" = "Genename")) %>% 
+  filter(annotcategory %in% c("Locally secreted", "Locally secreted to extracellular matrix", "Secreted to blood")) %>% filter(value < 0) %>% arrange(pseudotime)
+
+secwhite_struc <- left_join(secwhite, secmaster, by=c("gene" = "Genename")) %>% 
+  filter(annotcategory %in% c("Locally secreted", "Locally secreted to extracellular matrix", "Secreted to blood")) %>% filter(value > 0) %>% arrange(pseudotime)
+```
+
+```{r}
+sec_metab_total <- full_join(secbrown_metab, secwhite_metab, by="gene")
+sec_metab_total$ordering <- apply(sec_metab_total[,c("pseudotime.x","pseudotime.y")] , 1, FUN = min, na.rm = T)
+sec_metab_total <- sec_metab_total %>% arrange(ordering)
+
+
+
+sec_struc_total <- full_join(secbrown_struc, secwhite_struc, by="gene")
+
+sec_struc_total$ordering <- apply(sec_struc_total[,c("pseudotime.x","pseudotime.y")] , 1, FUN = min, na.rm = T)
+sec_struc_total <- sec_struc_total %>% arrange(ordering)
+```
+
+
+```{r}
+m <- as.matrix(sec_metab_total[, c("pseudotime.x","pseudotime.y")])
+rownames(m) <- sec_metab_total$gene
+pheatmap::pheatmap(t(m), cluster_rows=F, cluster_cols  = F, show_rownames =F, show_colnames = T,scale = "none",legend = F,annotation_legend= F,cellwidth = 7,cellheight = 5, fontsize_col = 4,fontsize_row = 3,color = colscale, breaks = breaksList, angle_col = 45, na_col = "#434543",  width = 8,filename = "secreted_upper_v2.pdf")
+
+
+
+m <- as.matrix(sec_struc_total[, c("pseudotime.x","pseudotime.y")])
+rownames(m) <- sec_struc_total$gene
+pheatmap::pheatmap(t(m), cluster_rows=F, cluster_cols  = F, show_rownames = F, show_colnames = T,scale = "none",legend = F,annotation_legend= F,cellwidth = 7,cellheight = 5, fontsize_col = 4,fontsize_row = 3,color = colscale, breaks = breaksList, angle_col = 45, na_col = "#434543", width = 14,filename = "secreted_lower_v2.pdf")
+
+```
+
+# Create legend separately and remove the red color
+
+library(ComplexHeatmap)
+col_fun = colorRamp2(breaksList, colscale)
+lgd = Legend(breaksList, legend_gp = gpar(fill = col_fun(breaksList)), grid_height = unit(1, "cm"), grid_width = unit(5, "mm"), direction = "horizontal")
+
+
+```{r}
+metab_intersect <- inner_join(secbrown_metab, secwhite_metab, by="gene")
+brown_metab_diff <- left_join(secbrown_metab, secwhite_metab, by="gene")  %>% .[is.na(.$pseudotime.y),]
+white_metab_diff <- right_join(secbrown_metab, secwhite_metab, by="gene")  %>% .[is.na(.$pseudotime.x),]
+
+struc_intersect <- inner_join(secbrown_struc, secwhite_struc, by="gene")
+brown_struc_diff <- left_join(secbrown_struc, secwhite_struc, by="gene")  %>% .[is.na(.$pseudotime.y),]
+white_struc_diff <- right_join(secbrown_struc, secwhite_struc, by="gene")  %>% .[is.na(.$pseudotime.x),]
+```
+
+```{r}
+
+inters = sum(sec_metab_total$pseudotime.y > 0 & sec_metab_total$pseudotime.x > 0, na.rm = T)
+BATunique = sum(is.na(sec_metab_total$pseudotime.y))
+WATunique = sum(is.na(sec_metab_total$pseudotime.x))
+
+#library(eulerr)
+fit1 <- euler(c("BAT" = BATunique, "WAT" = WATunique, "BAT&WAT" = inters))
+plot(fit1, quantities = T, fill = "transparent")
+
+svg("secreted_metabolic.svg")
+plot(fit1, quantities = T, fill = "transparent")
+dev.off()
+
+```
+
+```{r}
+
+inters = sum(tf_struc_total$V2brown > 0 & tf_struc_total$V2white > 0, na.rm = T)
+BATunique = sum(is.na(tf_struc_total$V2white))
+WATunique = sum(is.na(tf_struc_total$V2brown))
+
+#library(eulerr)
+fit1 <- euler(c("BAT" = BATunique, "WAT" = WATunique, "BAT&WAT" = inters))
+plot(fit1, quantities = T, fill = "transparent")
+
+svg("TF_structural.svg")
+plot(fit1, quantities = T, fill = "transparent")
+dev.off()
+
+```
+
+
+
+
