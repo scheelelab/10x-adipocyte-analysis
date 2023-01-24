@@ -1,0 +1,290 @@
+---
+title: "Palani et al 2023, RNA-seq analysis of BAT progenitors and in vitro differentiated & enriched SWAT cells in proliferation or differentiation media"
+output: html_notebook
+---
+
+FASTQ sequencing reads for this analysis can be accessed from GEO accession GSE223588.
+
+## preprocessing
+
+FASTQ files of paired-end reads were quantified for transcript expression using Salmon (v 1.5.2) with GENCODE 39 as reference transcriptome.
+
+
+# ---------------
+NPROCS=`wc -l < $PBS_NODEFILE`
+
+basedr=/home/projects/xxx/data/preadipo_scrnaseq/enriched_branches_rnaseq
+
+for fn in $basedr/raw_fastq/0218_*_R1_001.fastq.gz;
+do
+echo "Processing sample $(basename "${fn%_R1*}" )"
+salmon quant -i /home/projects/xxx/data/bioinfo_references/salmon_human_index/salmon_index -l A \
+         -1 "$fn" \
+         -2 $basedr/raw_fastq/"$(basename "${fn%_R1*}" )_R3_001.fastq.gz" \
+         -p $NPROCS --validateMappings --gcBias --seqBias --numGibbsSamples 20 -o $basedr/salmon_out/"$(basename "${fn%_R1*}" )_quant"
+done 
+
+# ---------------
+
+
+
+```{r message=FALSE, warning=FALSE}
+
+# Base
+library(tidyverse)
+library(tximeta)
+library(DESeq2)
+library(magrittr)
+library(biomaRt)
+
+# Figure aesthetics
+library(ggrepel)
+library(ggthemes)
+library(RColorBrewer)
+library(viridis)
+library(patchwork)
+library(ggplotify)
+library(dendsort)
+library(ComplexHeatmap)
+
+
+# Analysis tools
+library(FactoMineR)
+library(factoextra)
+
+# Global seed
+set.seed(42)
+```
+
+```{r}
+mart <- useEnsembl(biomart = "genes", dataset = "hsapiens_gene_ensembl", version = 105)
+```
+
+
+
+```{r message=FALSE}
+coldata <- readr::read_csv("/home/projects/data/preadipo_scrnaseq/carla_enriched_branches_rnaseq/analysis/branchEnrich_coldata.csv")
+
+coldata %<>% mutate_at(c("branch", "media","replicate","branch_media"), factor)
+
+coldata$files <- file.path("/home/projects/data/preadipo_scrnaseq/carla_enriched_branches_rnaseq/salmon_out",  coldata$names, "quant.sf")
+all(file.exists(coldata$files))
+```
+
+
+```{r}
+
+# point Tximeta to Salmon Human index directory
+setTximetaBFC("/home/projects/data/bioinfo_references/salmon_human_index/tximeta_dir")
+
+se <- tximeta(coldata)
+gse <- summarizeToGene(se)
+
+dds <- DESeqDataSet(gse, design = ~ branch_media)
+dds <- dds[rowSums(counts(dds)) >= 10,]
+dds <- DESeq(dds)
+
+
+coldata <- colData(dds) %>% as.data.frame()
+```
+
+
+### Find highly variable genes for visualization, N = 1000
+```{r}
+vst_all <- vst(dds, blind=FALSE) 
+vst_all_mat <- assay(vst_all)
+rownames(vst_all_mat) <- sapply(strsplit(rownames(vst_all_mat), ".", fixed=T), function(x) x[1])
+topVarGenes <- head(order(rowVars(vst_all_mat), decreasing = TRUE), 1000)
+vst_all_mat_top  <- vst_all_mat[ topVarGenes, ]
+```
+
+```{r}
+pca_hvg <- prcomp(t(vst_all_mat_top))
+pca_hvg_df <- cbind(coldata, pca_hvg$x)
+percentVar_hvg <- round(100 * summary(pca_hvg)$importance[2,])
+
+```
+
+```{r fig.width=4, fig.height=3}
+pca_hvg_plot <-
+  ggplot(pca_hvg_df,
+         aes(x = PC1,
+             y = PC2,)) +
+  geom_vline(xintercept = 0,
+             linetype = 2,
+             colour = "grey")  +
+  geom_hline(yintercept = 0,
+             linetype = 2,
+             colour = "grey") +  scale_shape_manual(values=c(21,24,24)) +
+  geom_point(aes(fill = branch_media,
+                 shape = branch),
+             size = 4,
+             alpha = .8, color = "black") + ggtitle("") +
+  xlab(paste0("PC1: ", percentVar_hvg[1], "% variance")) +
+  ylab(paste0("PC2: ", percentVar_hvg[2], "% variance")) +
+    scale_fill_manual(
+               values = c('#eeee44', '#377EB8', '#4DAF4A'),
+               labels = c("Proliferating_PM", "SWAT_DM", "SWAT_PM")
+             ) + #guides(fill = guide_legend(override.aes = list(shape=21))) +
+  theme_few() +   theme(legend.position = "none")
+
+
+pca_hvg_plot 
+```
+Almost all variation is captured in PC1. 
+
+```{r fig.width=6, fig.height=4}
+fviz_eig(pca_hvg,addlabels = T)
+```
+
+
+# Distance matrix of top N variable genes
+```{r fig.width=6, fig.height=4}
+vst_hvg_sampleDists <- dist(t(vst_all_mat_top))
+sampleDistMatrix <- as.matrix( vst_hvg_sampleDists )
+
+rownames(sampleDistMatrix) <- paste0(coldata$branch_media,"_",coldata$replicate)
+colnames(sampleDistMatrix) <- NULL
+
+
+clustdist_heatmap <- as.ggplot(pheatmap::pheatmap(sampleDistMatrix,
+         clustering_distance_rows = vst_hvg_sampleDists,
+         clustering_distance_cols = vst_hvg_sampleDists,
+         cluster_cols = hclust(vst_hvg_sampleDists), # distance dendrogram
+         col = viridis(10,option = "D"), main = "Distance matrix of samples within clusters", 
+         show_colnames = F, treeheight_col = 0,
+         show_rownames = T, treeheight_row = 8,
+         fontsize_row = 10,cellwidth = 15, cellheight =15, border_color = NA
+         ))
+
+clustdist_heatmap
+```
+
+
+Genecounts for all branches
+```{r}
+tcounts <- t(log2((counts(dds, normalized=TRUE)+.5))) %>%
+  merge(coldata, ., by="row.names") %>%
+  gather(gene, expression, (ncol(.)-length(rownames(dds))+1):ncol(.))
+
+
+tcounts$gene = sapply(strsplit(tcounts$gene, ".", fixed=T), function(x) x[1])
+
+genelist <- getBM(filters= "ensembl_gene_id", attributes= c("ensembl_gene_id","hgnc_symbol"),values=unique(tcounts$gene),mart= mart)
+
+tcounts <- left_join(tcounts,genelist,by=c("gene"="ensembl_gene_id"))
+
+tcounts$branch_media <- factor(tcounts$branch_media, levels=c("proliferating_PM","structural_DM","structural_PM"))
+
+```
+
+
+```{r fig.width=4, fig.height =2}
+
+goiold <- c("ID1","ID3","KRT18","POSTN","SNAI2","JUNB","PPARG","CEBPA")
+goi <- c("KRT18","POSTN")
+
+tcountsplot <- tcounts %>% filter(hgnc_symbol %in% goi)
+
+tcountsplot %<>% mutate(branch_media = case_when(branch_media == "proliferating_PM" ~ "P_PM",
+                                                 branch_media == "structural_PM" ~ "S_PM",
+                                                 branch_media == "structural_DM" ~ "S_DM"))
+
+genecountplots <- tcountsplot %>% mutate(across(hgnc_symbol, factor, levels=goi)) %>%
+  ggplot(
+         aes(branch_media, expression), 
+         label = hgnc_symbol) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.9) +
+  facet_wrap(vars(hgnc_symbol), ncol = 4, scales = "fixed")  + theme_classic() +
+  labs(x = "Branch",y = bquote( ~ Log[2] ~ '(Normalized counts)')) # + 
+  
+
+genecountplots
+```
+
+
+List of cell cycle genes was obtained from the Revelio R package - https://github.com/danielschw188/Revelio
+
+
+Cell cycle heatmap
+```{r fig.height=6, fig.width=4}
+
+# import cell cycle genes
+cellcycle_genes <- readr::read_csv("/home/projects/ku_00021/data/preadipo_scrnaseq/carla_enriched_branches_rnaseq/cellcycle_genes.csv")
+
+
+G_list <-
+  getBM(
+    filters = "hgnc_symbol",
+    attributes = c("ensembl_gene_id", "hgnc_symbol"),
+    values = cellcycle_genes$gene,
+    mart = mart
+  )
+cellcycle_genes <-
+  merge(cellcycle_genes, G_list, by.x = "gene", by.y = "hgnc_symbol")
+
+
+
+vst_cc <-
+  vst_all_mat[rownames(vst_all_mat) %in% cellcycle_genes$ensembl_gene_id, ] %>% as.data.frame()
+vst_cc$ensembl <- rownames(vst_cc)
+
+
+vst_cc <-
+  merge(
+    vst_cc,
+    cellcycle_genes,
+    by.x = "ensembl",
+    by.y = "ensembl_gene_id",
+    all = FALSE
+  )
+
+vst_cc[, 2:13] = t(scale(t(as.matrix(vst_cc[, 2:13]))))
+
+column_annot <- coldata %>% dplyr::select(branch, media)
+
+cc_heatmap <-
+  ComplexHeatmap::Heatmap(
+    vst_cc[, 2:13],
+    col = viridis(10, option = "C"),
+    row_split = factor(
+      vst_cc$cellcycle_phase,
+      levels = c("G1.S", "S", "G2", "G2.M", "M.G1")
+    ),
+    row_title = NULL,
+    cluster_row_slices = FALSE,
+    width = ncol(vst_cc[, 2:13]) * unit(5, "pt"),
+    height = nrow(vst_cc[, 2:13]) * unit(0.4, "pt"),
+    show_column_names = F,
+    show_row_names = F,
+    top_annotation = HeatmapAnnotation(
+      df = column_annot,
+      col = list(
+        branch = c(
+          "structural" = "#1B9E77",
+          "proliferating" = "#D95F02"
+        ),
+        media = c("PM" = "#7570B3", "DM" = "#E7298A")
+      ),
+      show_legend = T,
+      show_annotation_name =T
+    ),
+    # set to True to show annotation legend
+    show_row_dend = F,
+    column_dend_height = unit(5, "mm"),
+    heatmap_legend_param = list(title = ""),
+    rect_gp = gpar(col = NA),
+    show_heatmap_legend = T # Set to true to display heatmap scale
+  )
+
+cc_heatmap
+```
+
+
+
+
+
+```{r}
+sessionInfo()
+```
+

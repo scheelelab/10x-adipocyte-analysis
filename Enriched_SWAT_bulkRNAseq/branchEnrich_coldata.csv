@@ -1,0 +1,13 @@
+names,branch,media,replicate,branch_media
+0218_1_S1_quant,proliferating,PM,R1,proliferating_PM
+0218_6_S6_quant,proliferating,PM,R2,proliferating_PM
+0218_11_S11_quant,proliferating,PM,R3,proliferating_PM
+0218_16_S16_quant,proliferating,PM,R4,proliferating_PM
+0218_3_S3_quant,structural,DM,R1,structural_DM
+0218_8_S8_quant,structural,DM,R2,structural_DM
+0218_13_S13_quant,structural,DM,R3,structural_DM
+0218_18_S18_quant,structural,DM,R4,structural_DM
+0218_2_S2_quant,structural,PM,R1,structural_PM
+0218_7_S7_quant,structural,PM,R2,structural_PM
+0218_12_S12_quant,structural,PM,R3,structural_PM
+0218_17_S17_quant,structural,PM,R4,structural_PM
