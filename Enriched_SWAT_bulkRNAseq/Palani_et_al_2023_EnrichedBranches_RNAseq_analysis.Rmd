@@ -125,7 +125,7 @@ pca_hvg_plot <-
     scale_fill_manual(
                values = c('#eeee44', '#377EB8', '#4DAF4A'),
                labels = c("Proliferating_PM", "SWAT_DM", "SWAT_PM")
-             ) + #guides(fill = guide_legend(override.aes = list(shape=21))) +
+             ) + 
   theme_few() +   theme(legend.position = "none")
 
 
@@ -210,7 +210,7 @@ Cell cycle heatmap
 ```{r fig.height=6, fig.width=4}
 
 # import cell cycle genes
-cellcycle_genes <- readr::read_csv("/home/projects/ku_00021/data/preadipo_scrnaseq/carla_enriched_branches_rnaseq/cellcycle_genes.csv")
+cellcycle_genes <- readr::read_csv("/home/projects/data/preadipo_scrnaseq/carla_enriched_branches_rnaseq/cellcycle_genes.csv")
 
 
 G_list <-
